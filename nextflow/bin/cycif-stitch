@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+set -o errexit
+set -o nounset
+set -o pipefail
+IFS=$'\n\t'
+
+usage() {
+  cat <<HEREDOC
+Usage: $0 "/path/to/slide/" [--scenes STR] [--rounds STR]
+
+optional arguments:
+  -h, --help    show this help message and exit
+  --scenes STR  scene names, separated by spaces
+  --rounds STR  round names, separated by spaces
+HEREDOC
+  exit 1
+}
+
+# PARSE CLI ARGUMENTS ================================================================================================ #
+# taken from https://stackoverflow.com/a/14203146
+POSITIONAL_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+  --scenes)
+    SCENES="$2"
+    shift # past argument
+    shift # past value
+    ;;
+  --rounds)
+    ROUNDS="$2"
+    shift # past argument
+    shift # past value
+    ;;
+  -h | --help)
+    usage
+    shift # past argument
+    shift # past value
+    ;;
+  -*)
+    echo "Unknown option $1"
+    exit 1
+    ;;
+  *)
+    POSITIONAL_ARGS+=("$1") # save positional arg
+    shift                   # past argument
+    ;;
+  esac
+done
+
+set -- "${POSITIONAL_ARGS[@]}" # restore positional parameters
+
+# checking whether a variable is set or unset needs "+{something}"
+# see https://stackoverflow.com/a/13864829
+if [[ -z "${1+x}" ]]; then
+  echo "ERROR: Must pass a path to slide!"
+  usage
+  exit 1
+fi
+SLIDE_PATH="$1"
+
+# for the other keyword arguments, specify default ones
+if [[ -z "${SCENES+x}" ]]; then
+  SCENES=""
+fi
+
+if [[ -z "${ROUNDS+x}" ]]; then
+  ROUNDS=""
+fi
+
+#echo "SLIDE_PATH = ${SLIDE_PATH}"
+#echo "SCENES = ${SCENES}"
+#echo "ROUNDS = ${ROUNDS}"
+
+# NEXTFLOW LOGIC ===================================================================================================== #
+# check that slide path has .slide.json at least
+SLIDE_JSON_PATH="$SLIDE_PATH/.slide.json"
+if [[ ! -f "$SLIDE_JSON_PATH" ]]; then
+  echo "ERROR: .slide.json file not found in $SLIDE_PATH"
+  exit 1;
+fi
+
+# tell nextflow where the java classes are
+# this requires `mvn package`
+# TODO: should the pom.xml point to bin/?
+BASE_PATH="$(realpath "$(dirname "$0")/..")"
+export NXF_CLASSPATH="$BASE_PATH/target/classes"
+
+CONFIG_PATH="$BASE_PATH/nextflow.config"
+
+# strip trailing slash if ending with one
+if [[ $SLIDE_PATH == */ ]]; then
+  SLIDE_PATH=${SLIDE_PATH::-1}
+fi
+
+LOG_DIR="$SLIDE_PATH/.logs"
+PIPELINE_PATH="$BASE_PATH/pipelines/cycif-stitch.nf"
+
+# nextflow logging
+NF_DIR="$LOG_DIR/nextflow"
+LOG_PATH="$NF_DIR/stitch.log"
+REPORT_PATH="$NF_DIR/stitch.report.html"
+TRACE_PATH="$NF_DIR/stitch.trace.txt"
+TIMELINE_PATH="$NF_DIR/stitch.timeline.html"
+
+echo "cd to $SLIDE_PATH"
+cd "$SLIDE_PATH"
+
+nextflow \
+  -log "$LOG_PATH" \
+  -C "$CONFIG_PATH" \
+  run "$PIPELINE_PATH" \
+  -with-report "$REPORT_PATH" \
+  -with-trace "$TRACE_PATH" \
+  -with-timeline "$TIMELINE_PATH" \
+  --log-dir="$LOG_DIR" \
+  --slide="$SLIDE_PATH" \
+  --scenes="$SCENES" \
+  --rounds="$ROUNDS"
+#  -resume
+#  -stub

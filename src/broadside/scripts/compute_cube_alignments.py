@@ -1,6 +1,5 @@
 import argparse
 import math
-import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -10,29 +9,25 @@ import imageio
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
-import skimage.restoration.uft
+from PIL import Image, ImageFont, ImageDraw
 from dask import delayed
 from dateutil import tz
 from matplotlib import pyplot as plt, rcParams
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from ome_types import from_xml
-from scipy.ndimage import convolve, gaussian_laplace
+from pint import Quantity
+from scipy.ndimage import gaussian_laplace
 from skimage import img_as_float, img_as_ubyte
 from skimage.exposure import rescale_intensity
 from skimage.registration import phase_cross_correlation
 from tifffile import TiffReader
 
 from broadside.adjustments.alignment import scale_image, shift_image
+from broadside.config import re_filter, re_wavelength
 from broadside.utils.geoms import Point2D
 from broadside.utils.parallel import dask_session
 from broadside.utils.units import ureg
-
-re_filter = re.compile("^Filter:(?P<cube>[A-Za-z0-9-+_]+)-Emission$")
-re_wavelength = re.compile(
-    "^Filter:(?P<wavelength>[0-9]+)nm-(?P<bandwidth>10|20)nm-Emission$"
-)
-_laplace_kernel = skimage.restoration.uft.laplacian(2, (3, 3))[1]
 
 
 # PLOTTING =========================================================================== #
@@ -106,23 +101,33 @@ def _plot_cube_alignments(csv_path: Path, dst: Path, timestamp: int):
     _plot_ax_scales(axes[1], df)
     _plot_ax_shifts_after_scaling(axes[2], df)
 
-    dt_as_str = dt.strftime("%Y-%m-%d %H:%M:%S")
+    dt_as_str = dt.isoformat(timespec="seconds")
     fig.suptitle(f"Chromatic Aberration\nObtained {dt_as_str}")
     fig.tight_layout()
     fig.savefig(dst)
 
 
+# PILLOW ============================================================================= #
+
+
+def _add_text_bbox(
+    *,
+    draw: ImageDraw,
+    position: tuple[float, float],
+    text: str,
+    text_color,
+    bbox_color,
+    font: ImageFont,
+    border: int,
+):
+    left, top, right, bottom = draw.textbbox(position, text, font=font)
+    draw.rectangle(
+        (left - border, top - border, right + border, bottom + border), fill=bbox_color
+    )
+    draw.text(position, text, font=font, fill=text_color)
+
+
 # COMPUTING ========================================================================== #
-
-
-def sharpen(arr: npt.NDArray, sigma=0.0) -> npt.NDArray:
-    arr = rescale_intensity(arr)
-
-    if np.allclose(sigma, 0):
-        output = convolve(arr, _laplace_kernel)
-    else:
-        output = gaussian_laplace(arr, sigma)
-    return output
 
 
 def compute_large_shift(
@@ -130,8 +135,11 @@ def compute_large_shift(
     im_mov: npt.NDArray,
     *,
     shift_approx: Point2D,
-    upsample_factor=100,
+    upsample_factor: int,
 ) -> float:
+    assert isinstance(shift_approx.x, Quantity)
+    assert isinstance(shift_approx.y, Quantity)
+
     x = int(shift_approx.x.to(ureg.pixel).magnitude)
     y = int(shift_approx.y.to(ureg.pixel).magnitude)
 
@@ -183,7 +191,7 @@ class Channel:
     cumul_shift: Point2D | None = None
     shifted: npt.NDArray | None = None
 
-    processed: npt.NDArray | None = None
+    corrected: npt.NDArray | None = None
 
 
 @dataclass(frozen=True)
@@ -246,13 +254,18 @@ class Stack:
 
         return cls(channels=channels, pos=Point2D(x=x / x_mpp, y=y / y_mpp))
 
-    def sharpen(self, sigma=1.0):
+    def sharpen(self, sigma: float):
+        def _sharpen(arr: npt.NDArray, sigma: float):
+            arr = rescale_intensity(arr)
+            output = gaussian_laplace(arr, sigma)
+            return output
+
         # with timed_ctx("sharpened"):
         #     for index in self.index:
-        #         self[index].sharpened = sharpen(self[index].orig, sigma=sigma)
+        #         self[index].sharpened = _sharpen(self[index].orig, sigma=sigma)
 
         delayeds = [
-            delayed(sharpen)(self[index].orig, sigma=sigma) for index in self.index
+            delayed(_sharpen)(self[index].orig, sigma=sigma) for index in self.index
         ]
         results = dask.compute(*delayeds)
         for i, index in enumerate(self.index):
@@ -370,7 +383,7 @@ class Stack:
             return im
 
         # for index in self.index:
-        #     self[index].processed = _apply(
+        #     self[index].corrected = _apply(
         #         self[index].orig, self[index].scale, self[index].cumul_shift
         #     )
 
@@ -382,7 +395,7 @@ class Stack:
         ]
         results = dask.compute(*delayeds)
         for i, index in enumerate(self.index):
-            self[index].processed = results[i]
+            self[index].corrected = results[i]
 
 
 @dataclass(frozen=True)
@@ -390,19 +403,32 @@ class StackPair:
     ref: Stack
     mov: Stack
 
-    def sharpen(self, sigma=1):
+    def sharpen(self, sigma: float):
         self.ref.sharpen(sigma=sigma)
         self.mov.sharpen(sigma=sigma)
 
-    def compute_scales(self, upsample_factor=100):
+    def compute_scales(self, upsample_factor: int):
         large_shifts = {}
-        for index in self.ref.index:
-            large_shifts[index] = compute_large_shift(
+        # for index in self.ref.index:
+        #     large_shifts[index] = compute_large_shift(
+        #         self.ref[index].sharpened,
+        #         self.mov[index].sharpened,
+        #         shift_approx=self.mov.pos - self.ref.pos,
+        #         upsample_factor=upsample_factor,
+        #     )
+
+        delayeds = [
+            delayed(compute_large_shift)(
                 self.ref[index].sharpened,
                 self.mov[index].sharpened,
                 shift_approx=self.mov.pos - self.ref.pos,
                 upsample_factor=upsample_factor,
             )
+            for index in self.ref.index
+        ]
+        results = dask.compute(*delayeds)
+        for i, index in enumerate(self.ref.index):
+            large_shifts[index] = results[i]
 
         ref_shift = large_shifts[("DAPI", 460)]
         for index in self.ref.index:
@@ -453,20 +479,63 @@ class StackPair:
         self.mov.apply()
 
     def save_as_gif(self, dst: Path):
-        images = []
+        big_font = ImageFont.truetype("Arial.ttf", size=36)
+        small_font = ImageFont.truetype("Arial.ttf", size=18)
+
+        frames = []
         for index in self.ref.index:
             orig = self.ref[index].orig
+            orig = orig[-500:, -250:]
             orig = rescale_intensity(orig)
             orig = img_as_ubyte(orig)
 
-            processed = self.ref[index].processed
-            processed = rescale_intensity(processed)
-            processed = img_as_ubyte(processed)
+            # corrected = self.ref[index].orig
+            corrected = self.ref[index].corrected
+            corrected = corrected[-500:, -250:]
+            corrected = rescale_intensity(corrected)
+            corrected = img_as_ubyte(corrected)
 
-            ex = np.concatenate([orig[-500:, -250:], processed[-500:, -250:]], axis=1)
-            images.append(ex)
+            frame = np.concatenate([orig, corrected], axis=1)
+            pil_frame = Image.fromarray(frame, mode="L")
+            draw = ImageDraw.Draw(pil_frame)
 
-        imageio.mimsave(dst, images, duration=0.1)
+            border = 5
+
+            _add_text_bbox(
+                draw=draw,
+                position=(10 + border, border),
+                text="Original",
+                text_color="black",
+                bbox_color="white",
+                font=big_font,
+                border=border,
+            )
+
+            _add_text_bbox(
+                draw=draw,
+                position=(10 + 250 + border, border),
+                text="Corrected",
+                text_color="black",
+                bbox_color="white",
+                font=big_font,
+                border=border,
+            )
+
+            cube, wavelength = index
+            _add_text_bbox(
+                draw=draw,
+                position=(10 + border, 430 + border),
+                text=f"{cube}\n{wavelength:,.0f}nm",
+                text_color="black",
+                bbox_color="white",
+                font=small_font,
+                border=5,
+            )
+
+            frame = np.array(pil_frame)
+            frames.append(frame)
+
+        imageio.mimsave(dst, frames, duration=0.1)
 
 
 def compute_cube_alignments(
@@ -482,8 +551,8 @@ def compute_cube_alignments(
     mov = Stack.from_path(mov_path)
 
     stack_pair = StackPair(ref=ref, mov=mov)
-    stack_pair.sharpen()
-    stack_pair.compute_scales()
+    stack_pair.sharpen(sigma=1.0)
+    stack_pair.compute_scales(upsample_factor=100)
     stack_pair.scale()
     stack_pair.compute_shifts()
     stack_pair.save_as_csv(csv_path)

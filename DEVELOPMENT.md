@@ -52,6 +52,8 @@ This is probably a bit too rigid, but it works for us at the moment. If we plan 
   - lamp
   - stage-xy
 
+# TODO
+- consider adding nextflow option to cache certain outputs, like illumination profiles
 
 # Nextflow notes
 * for conda to specify certain functions as entry points, the filenames of the files containing said functions must be importable (e.g. no dashes in filename)

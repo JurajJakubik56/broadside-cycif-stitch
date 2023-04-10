@@ -11,22 +11,23 @@ class dask_session:
         n_cpus: int | None = None,
         dask_report_filename: str | None = None
     ):
-        self.memory_limit = memory_limit
+        if memory_limit is None:
+            self.memory_limit = "auto"
+        else:
+            self.memory_limit = memory_limit
+
         self.n_cpus = n_cpus
         self.filename = dask_report_filename
 
     def __enter__(self):
-        if self.memory_limit is None:
-            memory_limit = "auto"
-        else:
-            memory_limit = self.memory_limit
-
         if self.n_cpus is None:
-            self.client = Client(LocalCluster(memory_limit=memory_limit))
+            self.client = Client(
+                LocalCluster(memory_limit=self.memory_limit, processes=False)
+            )
         else:
             self.client = Client(
                 LocalCluster(
-                    memory_limit=memory_limit,
+                    memory_limit=self.memory_limit,
                     processes=False,
                     n_workers=1,
                     threads_per_worker=self.n_cpus,
@@ -40,6 +41,8 @@ class dask_session:
 
         self.client.__enter__()
         self.report.__enter__()
+
+        return self
 
     def __exit__(self, *args):
         """

@@ -1,4 +1,4 @@
-# `broadside-stitch`
+# `broadside-cycif-stitch`
 
 *Broadside* is an image processing pipeline used by the Laboratory for Bio-Micro Devices @ Brigham & Women's Hospital in Boston, MA. As our image acquisition is a little different, some pre-processing steps are needed.
 
@@ -30,7 +30,7 @@ Download the following:
 
 1. clone this repository to a folder
 2. copy the `example-nextflow.config` file and rename it to `nextflow.config`
-   1. specify paths to the nextflow work directory and the calibration directory of the microscope that generated the tiles
+   1. specify paths to the nextflow work directory, conda environment.yml file, and the calibration directory of the microscope that generated the tiles
 3. navigate to `./nextflow` and run `mvn package`
-4. run `bin/check-slide-status /path/to/slide/` to get output on slide
-5. modify and run `bin/stitch-multiple` to run the pipeline for each slide
+4. run `bin/check-slide-status /path/to/slide/` to get some info on a slide
+5. modify and run `bin/cycif-stitch /path/to/slide/` to run the pipeline for a slide

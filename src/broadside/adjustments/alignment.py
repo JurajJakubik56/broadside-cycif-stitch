@@ -9,14 +9,10 @@ import pandas as pd
 from ome_types.model import Pixels
 from skimage.transform import SimilarityTransform, warp, EuclideanTransform
 
+from broadside.config import re_filter, re_wavelength
 from broadside.utils.geoms import Point2D
 from broadside.utils.search import find_nearest
 
-
-re_filter = re.compile("^Filter:(?P<cube>[A-Za-z0-9-+_]+)-Emission$")
-re_wavelength = re.compile(
-    "^Filter:(?P<wavelength>[0-9]+)nm-(?P<bandwidth>10|20)nm-Emission$"
-)
 """
 The warp order is 3 as it gives a reasonable tradeoff between 1 (fast but not so 
 accurate) and 5 (accurate but ~8x slower than 1).

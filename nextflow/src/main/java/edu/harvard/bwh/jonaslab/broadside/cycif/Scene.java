@@ -1,4 +1,7 @@
-package edu.harvard.bwh.jonaslab.broadside;
+package edu.harvard.bwh.jonaslab.broadside.cycif;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
@@ -7,14 +10,12 @@ import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class Scene {
-    private final Logger log = Logger.getLogger(getClass().getName());
+    private final Logger log = LoggerFactory.getLogger(getClass().getName());
     public final Path path;
     private final Path tilesPath;
     public final String name;
@@ -46,7 +47,7 @@ public class Scene {
             Set<String> extraRoundNames = new HashSet<>(selectedRoundNames);
             extraRoundNames.removeAll(fsRoundNames);
             if (extraRoundNames.size() != 0) {
-                log.warning(String.format("Unrecognized round names found: %s", extraRoundNames));
+                log.warn(String.format("Unrecognized round names found: %s", extraRoundNames));
             }
             roundNames.retainAll(selectedRoundNames);
         }
@@ -55,7 +56,7 @@ public class Scene {
         this.name = name;
 //        this.fsRoundNames = fsRoundNames.stream().sorted().collect(Collectors.toUnmodifiableList());
         this.tilesPath = tilesPath;
-        this.roundNames = roundNames.stream().sorted().collect(Collectors.toUnmodifiableList());
+        this.roundNames = roundNames.stream().sorted().toList();
 
         // compute summaries based on properties
         int maxRoundLen = 0;
@@ -106,7 +107,7 @@ public class Scene {
 
     public List<Path> getTilePathsForRound(String roundName) {
         if (!roundNames.contains(roundName)) {
-            log.warning(String.format("No tile paths found for round %s", roundName));
+            log.warn(String.format("No tile paths found for round %s", roundName));
             return Collections.emptyList();
         }
 
@@ -115,7 +116,7 @@ public class Scene {
         return tilesAsStream
                 .map(File::toPath)
                 .filter(it -> tileFilenamePattern.matcher(it.getFileName().toString()).matches())
-                .collect(Collectors.toUnmodifiableList());
+                .toList();
     }
 
     public List<String> getRoundNames() {

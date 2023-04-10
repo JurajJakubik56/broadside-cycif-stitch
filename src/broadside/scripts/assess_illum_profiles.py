@@ -14,7 +14,7 @@ from ome_types import from_xml
 from scipy.signal import savgol_filter
 from tifffile import TiffReader
 
-from broadside.adjustments.hot_pixels import get_remove_hot_pixels_func
+from broadside.adjustments.hot_pixels import get_remove_hot_pixels_func_cyx
 from broadside.utils.io import read_paths
 
 rcParams["figure.dpi"] = 300
@@ -27,7 +27,7 @@ class TileQC:
     ipr: float  # inter-percentile range
 
 
-def get_mean(path: Path, channel: int = 0, mid_chunk_size: int = 512) -> TileQC:
+def get_mean(path: Path, channel=0, mid_chunk_size=512) -> TileQC:
     with TiffReader(path) as tif:
         im = tif.pages[channel].asarray(maxworkers=1)
     assert im.ndim == 2
@@ -56,11 +56,11 @@ class Image:
         darkfield: npt.NDArray,
     ):
         with TiffReader(path) as reader:
+            image = reader.asarray()
             ome = from_xml(reader.ome_metadata, parser="lxml")
             ts = ome.images[0].acquisition_date.timestamp()
-            image = reader.asarray()
 
-        remove_hot_pixels = get_remove_hot_pixels_func(ts, dark_dir=dark_dir)
+        remove_hot_pixels = get_remove_hot_pixels_func_cyx(ts, dark_dir=dark_dir)
         self.raw: npt.NDArray = remove_hot_pixels(image)
 
         adjusted = self.raw - darkfield
@@ -78,10 +78,10 @@ def get_channel_props(path: Path):
     with TiffReader(path) as reader:
         ome = from_xml(reader.ome_metadata, parser="lxml")
         channels = ome.images[0].pixels.channels
-        props = [
-            dict(i=i, biomarker=channel.name, fluorophore=channel.fluor)
-            for i, channel in enumerate(channels)
-        ]
+    props = [
+        dict(i=i, biomarker=channel.name, fluorophore=channel.fluor)
+        for i, channel in enumerate(channels)
+    ]
     return props
 
 
@@ -93,27 +93,22 @@ def plot(
     dark_dir: Path,
     dst: Path,
 ):
-    flatfield: npt.NDArray = tifffile.imread(flatfield_path)
-    darkfield: npt.NDArray = tifffile.imread(darkfield_path)
+    flatfield: npt.NDArray = tifffile.imread(flatfield_path, maxworkers=1)
+    darkfield: npt.NDArray = tifffile.imread(darkfield_path, maxworkers=1)
 
     channel_props = get_channel_props(tile_paths[0])
     channel_names = [f'{p["biomarker"]}\n({p["fluorophore"]})' for p in channel_props]
 
-    exemplar = Image(
-        path=tile_paths[0],
-        dark_dir=dark_dir,
-        flatfield=flatfield,
-        darkfield=darkfield,
-    )
-    images = [exemplar] + [
+    images = [
         Image(
-            path=path,
+            path=tile_path,
             dark_dir=dark_dir,
             flatfield=flatfield,
             darkfield=darkfield,
         )
-        for path in tile_paths[1:]
+        for tile_path in tile_paths
     ]
+    exemplar = images[0]
 
     n_tiles = len(tile_paths)
     n_channels = exemplar.raw.shape[0]

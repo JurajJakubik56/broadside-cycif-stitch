@@ -1,7 +1,7 @@
 [tool.poetry]
-name = "broadside-stitch"
+name = "broadside-cycif-stitch"
 version = "0.1.0"
-description = "Stitching for the Laboratory for Bio-Micro Devices @ BWH"
+description = "Stitching cycif images for the Laboratory for Bio-Micro Devices @ BWH"
 readme = "README.md"
 license = "LICENSE"
 authors = ["Sebastian Ahn <wahn1@bwh.harvard.edu>"]
@@ -38,7 +38,7 @@ opencv-python = "^4.7"
 pandas = "^1.5"
 pillow = "^9.4"
 pint = "^0.20"
-pybasic = { git = "https://github.com/biomicrodev/pybasic.git", branch = "master", rev = "84737b7" }
+pybasic = { git = "https://github.com/biomicrodev/pybasic.git", branch = "master" }
 scikit-image = "^0.19"
 scipy = "^1.8"
 structlog = "^22.3"
@@ -50,15 +50,13 @@ black = { version = "^23.1", extras = ["d"] }
 py-spy = "^0.3.14"
 
 [tool.poetry.scripts]
-assess-illum-profiles = "broadside.scripts.assess_illum_profiles:run"
-assess-tissue-loss = "broadside.scripts.assess_tissue_loss:run"
 compute-cube-alignments = "broadside.scripts.compute_cube_alignments:run"
 make-illum-profiles = "broadside.scripts.make_illum_profiles:run"
-make-unmixing-mosaic = "broadside.scripts.make_unmixing_mosaic:run"
-register-and-stitch = "broadside.scripts.register_and_stitch:run"
+assess-illum-profiles = "broadside.scripts.assess_illum_profiles:run"
 stack-tiles = "broadside.scripts.stack_tiles:run"
-tiff-to-zarr = "broadside.scripts.tiff_to_zarr:run"
+register-and-stitch = "broadside.scripts.register_and_stitch:run"
 write-ome-metadata = "broadside.scripts.write_ome_metadata:run"
+tiff-to-zarr = "broadside.scripts.tiff_to_zarr:run"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

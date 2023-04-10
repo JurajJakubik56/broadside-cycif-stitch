@@ -3,21 +3,16 @@ import java.nio.file.Paths
 
 params.refChannelIndex = 0
 
-// unmix-specific parameters
-params.nMosaic = 49
-params.unmixMidChunkSize = 512
-params.unmixDownsample = 4 // 8
-params.overwriteUnmixingMosaics = false
-
 // registration/stitching parameters
 params.ashlarMaxShiftUM = 50
 params.ashlarFilterSigma = 4  // 4 may be too much, it may register but not too precisely; 2 may be too little and fails to register
 params.ashlarTileSize = 1024
+params.zarrChunkSize = 4096
 
 String newline = "\n"
 String colSep = "\t"
 
-process COLLECT_TILES_BY_SCENE_ROUND {
+process COLLECT_TILES_BY_SCENE_AND_ROUND {
     tag "scene: ${scene}, round: ${round}"
 
     input:
@@ -38,13 +33,13 @@ process COLLECT_TILES_BY_SCENE_ROUND {
         file(dst).text = tilePaths.join(newline)
 }
 
-process STACK_TILES_BY_SCENE_ROUND {
+process STACK_TILES_BY_SCENE_AND_ROUND {
     if (!workflow.stubRun) {
-        conda "./environment.yml"
+        conda "${params.condaEnvironmentPath}"
     }
     tag "scene: ${scene}, round: ${round}"
     memory "16 GB"
-    cpus 2
+    cpus 4
 
     publishDir(
         path: "${params.logDir}/stack-tiles/",
@@ -80,9 +75,9 @@ process STACK_TILES_BY_SCENE_ROUND {
             --dark-dir "${darkDir}" \
             --scales-shifts-dir "${scalesShiftsDir}" \
             --dst "stack-${scene}-${round}.ome.tiff" \
-            --dask-report-filename "stack-tiles-${scene}-${round}.dask-performance.html" \
             --n-cpus "${task.cpus}" \
-            --memory-limit "${task.memory}"
+            --memory-limit "${task.memory}" \
+            --dask-report-filename "stack-tiles-${scene}-${round}.dask-performance.html"
         """
 
     stub:
@@ -103,45 +98,6 @@ process COLLECT_STACKS_BY_ROUND {
     exec:
         Path dst = task.workDir.resolve("stacks-${round}.txt")
         file(dst).text = stackPaths.join(newline)
-}
-
-process MAKE_UNMIXING_MOSAIC_BY_ROUND {
-    if (!workflow.stubRun) {
-        conda "./environment.yml"
-    }
-    tag "round: ${round}"
-
-    publishDir(
-        path: "${unmixMosaicsDir}",
-        mode: "copy",
-        enabled: !workflow.stubRun,
-        pattern: "unmixing-mosaic-*.tiff"
-    )
-
-    input:
-        tuple \
-            val(round), \
-            path(stacksPath)
-        val unmixMosaicsDir
-
-    output:
-        path "unmixing-mosaic-${round}.tiff"
-
-    script:
-        """
-        make-unmixing-mosaic \
-            --stacks-path "${stacksPath}" \
-            --ref-channel "${params.refChannelIndex}" \
-            --downsample "${params.unmixDownsample}" \
-            --n-tiles "${params.nMosaic}" \
-            --mid-chunk-size "${params.unmixMidChunkSize}" \
-            --dst "unmixing-mosaic-${round}.tiff"
-        """
-
-    stub:
-        """
-        touch "unmixing-mosaic-${round}.tiff"
-        """
 }
 
 process SORT_STACKS {
@@ -211,14 +167,14 @@ process COLLECT_TILES_BY_SCENE {
 
 process REGISTER_AND_STITCH_SCENE {
     if (!workflow.stubRun) {
-        conda "./environment.yml"
+        conda "${params.condaEnvironmentPath}"
     }
     tag "scene: ${sceneName}"
 
     publishDir(
         path: "${sceneDir}",
-        mode: "copy",
         enabled: !workflow.stubRun,
+        mode: "copy",
     )
 
     input:
@@ -267,14 +223,23 @@ process REGISTER_AND_STITCH_SCENE {
 
 process MAKE_SCENE_ZARR_FROM_TIFF {
     if (!workflow.stubRun) {
-        conda "./environment.yml"
+        conda "${params.condaEnvironmentPath}"
     }
     tag "scene: ${sceneName}"
+    memory "2 GB"
+    cpus 2
 
     publishDir(
-        path: "${sceneDir}",
-        mode: "copy",
+        path: "${params.logDir}/tiff-to-zarr/",
         enabled: !workflow.stubRun,
+        mode: "copy",
+        pattern: "tiff-to-zarr-*.dask-performance.html"
+    )
+    publishDir(
+        path: "${sceneDir}",
+        enabled: !workflow.stubRun,
+        mode: "copy",
+        pattern: "${params.omeZarrDirname}"
     )
 
     input:
@@ -291,12 +256,16 @@ process MAKE_SCENE_ZARR_FROM_TIFF {
         tiff-to-zarr \
             --src "${omeTiffPath}" \
             --dst "${params.omeZarrDirname}" \
-            --tile-size "${params.ashlarTileSize}"
+            --tile-size "${params.zarrChunkSize}" \
+            --n-cpus "${task.cpus}" \
+            --memory-limit "${task.memory}" \
+            --dask-report-filename "tiff-to-zarr-${sceneName}.dask-performance.html"
         """
 
     stub:
         """
         mkdir "${params.omeZarrDirname}"
+        touch "tiff-to-zarr-${sceneName}.dask-performance.html"
         """
 }
 
@@ -306,13 +275,9 @@ workflow PROCESS_SCENES {
         illumProfilesByRound
 
     main:
-        /*
-        This way of mapping is unnecessary but lets the programmer know what to expect.
-        It won't run if they are switched, but still...
-        */
         channel.fromList(slide.getSceneNames()).set { scenesCh }
 
-        COLLECT_TILES_BY_SCENE_ROUND(
+        COLLECT_TILES_BY_SCENE_AND_ROUND(
             slide,
             scenesCh
                 .map { [it, slide.getScene(it).getRoundNames()] }
@@ -320,28 +285,27 @@ workflow PROCESS_SCENES {
                 .map { [scene: it[0], round: it[1]] }
                 .map { [it.scene, it.round] }
         )
-
-        STACK_TILES_BY_SCENE_ROUND(
+        STACK_TILES_BY_SCENE_AND_ROUND(
             scenesCh
                .combine(illumProfilesByRound)
                .map { [scene: it[0], round: it[1], flatfield: it[2], darkfield: it[3]] }
                .filter { slide.getScene(it.scene).getRoundNames().contains(it.round) }
                .map { [it.scene, it.round, it.flatfield, it.darkfield] }
-               .join(COLLECT_TILES_BY_SCENE_ROUND.out, by: [0, 1])
-           )
+               .join(COLLECT_TILES_BY_SCENE_AND_ROUND.out, by: [0, 1])
+        )
 
         COLLECT_STACKS_BY_ROUND(
-            STACK_TILES_BY_SCENE_ROUND.out.stacks
+            STACK_TILES_BY_SCENE_AND_ROUND.out
+                .stacks
                 .groupTuple(by: 1)  // rounds
                 .map { [round: it[1], stacksPath: it[3]] }
                 .map { [it.round, it.stacksPath] }
         )
-        MAKE_UNMIXING_MOSAIC_BY_ROUND(
-            COLLECT_STACKS_BY_ROUND.out,
-            slide.unmixMosaicsDir,
+        SORT_STACKS(
+            STACK_TILES_BY_SCENE_AND_ROUND.out
+                .stacks
+                .groupTuple(by: 0)
         )
-
-        SORT_STACKS(STACK_TILES_BY_SCENE_ROUND.out.stacks.groupTuple(by: 0))
         SORT_STACKS.out
             .map { [
                 scene: it[0],

@@ -1,6 +1,8 @@
-package edu.harvard.bwh.jonaslab.broadside;
+package edu.harvard.bwh.jonaslab.broadside.cycif;
 
 import com.google.gson.Gson;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.FileReader;
 import java.io.IOException;
@@ -9,7 +11,6 @@ import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 class NamedPolygon {
@@ -25,14 +26,12 @@ class SlideSpecification {
 }
 
 public class Slide {
-    private final Logger log = Logger.getLogger(getClass().getName());
+    private final Logger log = LoggerFactory.getLogger(getClass().getName());
 
     public final Path path;
     public final String name;
     public final List<Scene> scenes;
     public final Path jsonPath;
-    public final Path illumDir;
-    public final Path unmixMosaicsDir;
     public final String summary;
     public final String nextflowSummary;
 
@@ -52,9 +51,9 @@ public class Slide {
         Set<String> sceneNamesFromJson = getSceneNamesFromJson(jsonPath);
         Set<String> sceneNamesFromFileSystem = getSceneNamesFromFileSystem(path);
         if (!Objects.equals(sceneNamesFromJson, sceneNamesFromFileSystem)) {
-            log.warning("Mismatch between scenes in slide.json and scenes on filesystem; using filesystem");
+            log.warn("Mismatch between scenes in slide.json and scenes on filesystem; using filesystem");
         }
-        List<String> allSceneNames = sceneNamesFromFileSystem.stream().sorted().collect(Collectors.toUnmodifiableList());
+        List<String> allSceneNames = sceneNamesFromFileSystem.stream().sorted().toList();
 
         // validate scene names
         Set<String> foundSceneNames = new HashSet<>(sceneNamesFromFileSystem);
@@ -63,7 +62,7 @@ public class Slide {
             Set<String> extraNames = new HashSet<>(selectedSceneNames);
             extraNames.removeAll(sceneNamesFromFileSystem);
             if (extraNames.size() != 0) {
-                log.warning(String.format("Unrecognized scene names: %s", extraNames));
+                log.warn(String.format("Unrecognized scene names: %s", extraNames));
             }
             foundSceneNames.retainAll(selectedSceneNames);
         }
@@ -73,20 +72,20 @@ public class Slide {
                 .stream()
                 .map(sceneName -> new Scene(path.resolve(sceneName), selectedRoundNames))
                 .sorted(Comparator.comparing(scene -> scene.name))
-                .collect(Collectors.toUnmodifiableList());
+                .toList();
 
         // compute scene and round names
         List<String> sceneNames = scenes
                 .stream()
                 .map(it -> it.name)
                 .sorted()
-                .collect(Collectors.toUnmodifiableList());
+                .toList();
         List<String> roundNames = scenes
                 .stream()
                 .flatMap(scene -> scene.getRoundNames().stream())
                 .distinct()
                 .sorted()
-                .collect(Collectors.toUnmodifiableList());
+                .toList();
 
         // compute summaries
         String simpleSceneSummaries = scenes
@@ -115,8 +114,6 @@ public class Slide {
         this.path = path;
         this.name = name;
         this.jsonPath = jsonPath;
-        this.illumDir = path.resolve(".illumination");
-        this.unmixMosaicsDir = path.resolve(".unmixing").resolve("mosaics");
         this.scenes = scenes;
 //        this.allSceneNames = allSceneNames;
 //        this.sceneNames = sceneNames;
@@ -169,21 +166,25 @@ public class Slide {
         return scenes
                 .stream()
                 .map(it -> it.name)
-                .collect(Collectors.toUnmodifiableList());
+                .toList();
     }
 
     public List<String> getRoundNames() {
+        // instead of creating a new set, we iterate over each scene's round names to keep the order
         List<String> roundNames = new ArrayList<>();
         for (Scene scene : scenes) {
-            roundNames.addAll(scene.getRoundNames());
+            for (String roundName : scene.getRoundNames()) {
+                if (!roundNames.contains(roundName)) {
+                    roundNames.add(roundName);
+                }
+            }
         }
-        Collections.sort(roundNames);
         return roundNames;
     }
 
     public List<Path> getTilePathsForRound(String roundName) {
         if (!getRoundNames().contains(roundName)) {
-            log.warning(String.format("No tile paths found for round %s", roundName));
+            log.warn(String.format("formatNo tile paths found for round %s", roundName));
             return Collections.emptyList();
         }
 

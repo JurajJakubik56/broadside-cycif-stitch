@@ -1,4 +1,4 @@
-package edu.harvard.bwh.jonaslab.broadside;
+package edu.harvard.bwh.jonaslab.broadside.cycif;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;

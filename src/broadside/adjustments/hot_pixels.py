@@ -1,6 +1,6 @@
-import re
 from functools import lru_cache
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 import numpy.typing as npt
@@ -8,6 +8,7 @@ from numba import njit
 from skimage.util import img_as_float
 from tifffile import tifffile
 
+from broadside.config import re_dark_timestamps
 from broadside.utils.search import find_nearest
 
 
@@ -45,10 +46,9 @@ def get_neighbor_inds():
 @lru_cache()
 def get_dark_timestamps(dark_dir: Path) -> list[float]:
     # get timestamps from path filenames
-    re_unix = re.compile("dark-(?P<ts>[0-9]+).ome.tif{1,2}")
     timestamps = []
     for p in dark_dir.iterdir():
-        is_match = re_unix.match(p.name)
+        is_match = re_dark_timestamps.match(p.name)
         if not is_match:
             continue
         timestamps.append(float(is_match["ts"]))
@@ -59,9 +59,9 @@ def get_dark_timestamps(dark_dir: Path) -> list[float]:
     return timestamps
 
 
-def get_remove_hot_pixels_func(
-        ts: float, *, pct=99.5, connectivity=8, method="median", dark_dir: Path
-):
+def get_remove_hot_pixels_func_cyx(
+    ts: float, *, pct=99.99, connectivity=8, method="median", dark_dir: Path
+) -> Callable:
     # validate inputs
     assert 0 <= pct <= 100
     assert connectivity in get_neighbor_inds().keys()
@@ -127,9 +127,9 @@ def get_remove_hot_pixels_func(
     return func
 
 
-def get_remove_hot_pixels_func_2d(
-        ts: float, *, pct=99.5, connectivity=8, method="median", dark_dir: Path
-):
+def get_remove_hot_pixels_func_yx(
+    ts: float, *, pct=99.99, connectivity=8, method="median", dark_dir: Path
+) -> Callable:
     # validate inputs
     assert 0 <= pct <= 100
     assert connectivity in get_neighbor_inds().keys()

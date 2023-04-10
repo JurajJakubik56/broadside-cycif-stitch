@@ -67,7 +67,7 @@ def doComputeCubeAlignments(int timestamp) {
 
 process COMPUTE_CUBE_ALIGNMENTS {
     if (!workflow.stubRun) {
-        conda "./environment.yml"
+        conda "${params.condaEnvironmentPath}"
     }
     tag "timestamp: ${timestamp}"
     memory "32 GB"

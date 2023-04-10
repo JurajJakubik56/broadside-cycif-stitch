@@ -1,6 +1,6 @@
 import java.nio.file.Paths
-import edu.harvard.bwh.jonaslab.broadside.Slide
-import edu.harvard.bwh.jonaslab.broadside.Scene
+import edu.harvard.bwh.jonaslab.broadside.cycif.Slide
+import edu.harvard.bwh.jonaslab.broadside.cycif.Scene
 
 include { PREPARE_CUBE_ALIGNMENTS } from "./prepare-cube-alignment"
 include { PREPARE_ROUNDS } from "./prepare-rounds"
@@ -20,14 +20,13 @@ def slide = new Slide(
     selectedRoundNames as Set
 )
 
-// log init
 log.info """\
 ==================================================================
 B R O A D S I D E
 Image processing pipeline for the
 Laboratory for Bio-Micro Devices @ Brigham & Women's Hospital
 ------------------------------------------------------------------
-STITCHING
+Stitching cyclic immunofluorescence images
 Run started: ${new Date()}
 
 Running with the following settings:

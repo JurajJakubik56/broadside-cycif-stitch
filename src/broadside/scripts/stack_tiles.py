@@ -11,7 +11,7 @@ from ome_types import from_xml, OME
 from ome_types.model import Image
 from skimage import img_as_float
 from skimage.util.dtype import _convert
-from tifffile import TiffReader, TiffWriter
+from tifffile import TiffReader
 
 from broadside.adjustments.alignment import (
     SpectralBand,
@@ -20,7 +20,7 @@ from broadside.adjustments.alignment import (
     scale_image,
     shift_image,
 )
-from broadside.adjustments.hot_pixels import get_remove_hot_pixels_func
+from broadside.adjustments.hot_pixels import get_remove_hot_pixels_func_cyx
 from broadside.utils.geoms import get_center_of_points
 from broadside.utils.io import read_paths
 from broadside.utils.parallel import dask_session
@@ -39,7 +39,7 @@ def imrotate(stack: npt.NDArray) -> npt.NDArray:
     return stack_rot
 
 
-def read_tile_parallel(
+def read_tile_parallel_with_illum_read(
     path: Path,
     *,
     remove_hot_pixels: Callable,
@@ -66,19 +66,21 @@ def read_tile_parallel(
     darkfield: npt.NDArray = tifffile.imread(darkfield_path, maxworkers=1)
     image -= darkfield
     image /= flatfield
+    # not sure how garbage collection works since without explicitly deleting the
+    # profiles, the memory usage is larger
     del flatfield
     del darkfield
 
     assert len(image) == len(bands)
 
-    chs = []
-    for ch, band in zip(image, bands):
+    channels = []
+    for channel, band in zip(image, bands):
         scale = scales[band.cube][band.wavelength]
         shift = shifts[band.cube][band.wavelength]
-        ch = scale_image(ch, scale)
-        ch = shift_image(ch, shift)
-        chs.append(ch)
-    image = np.stack(chs)
+        channel = scale_image(channel, scale)
+        channel = shift_image(channel, shift)
+        channels.append(channel)
+    image = np.stack(channels)
 
     image.clip(0, 1, out=image)
     image = _convert(image, dtype)
@@ -86,7 +88,7 @@ def read_tile_parallel(
     return image
 
 
-def read_tile_parallel_without_read(
+def read_tile_parallel_without_illum_read(
     path: Path,
     *,
     remove_hot_pixels: Callable,
@@ -97,13 +99,6 @@ def read_tile_parallel_without_read(
     bands: list[SpectralBand],
     dtype: npt.DTypeLike,
 ):
-    """
-    The reason the workers have to read the flatfield and darkfield images instead of
-    being passed the image is that when the function is passed to the worker, it makes
-    copies of both and that is enough to completely use up the RAM. It's not ideal since
-    we keep hammering the server...
-    """
-
     image: npt.NDArray = tifffile.imread(path, maxworkers=1)
     image = img_as_float(image)
     image = remove_hot_pixels(image)
@@ -184,34 +179,20 @@ def stack_tiles_parallel(
         pixels = ome.images[0].pixels
         ts = ome.images[0].acquisition_date.timestamp()
 
-    remove_hot_pixels = get_remove_hot_pixels_func(ts, dark_dir=dark_dir)
+    remove_hot_pixels = get_remove_hot_pixels_func_cyx(ts, dark_dir=dark_dir)
     bands = get_spectral_bands(pixels)
     scales, shifts = get_scales_shifts(ts, scales_shifts_dir=scales_shifts_dir)
     new_shape = [shape[i] for i in rotated_axes]
 
-    flatfield = tifffile.imread(flatfield_path)
-    darkfield = tifffile.imread(darkfield_path)
-
-    # delayeds = [
-    #     delayed(read_tile_parallel)(
-    #         path,
-    #         remove_hot_pixels=remove_hot_pixels,
-    #         flatfield_path=flatfield_path,
-    #         darkfield_path=darkfield_path,
-    #         scales=scales,
-    #         shifts=shifts,
-    #         bands=bands,
-    #         dtype=dtype,
-    #     )
-    #     for path in tile_paths
-    # ]
+    # flatfield = tifffile.imread(flatfield_path, maxworkers=1)
+    # darkfield = tifffile.imread(darkfield_path, maxworkers=1)
 
     delayeds = [
-        delayed(read_tile_parallel_without_read)(
+        delayed(read_tile_parallel_with_illum_read)(
             path,
             remove_hot_pixels=remove_hot_pixels,
-            flatfield=flatfield,
-            darkfield=darkfield,
+            flatfield_path=flatfield_path,
+            darkfield_path=darkfield_path,
             scales=scales,
             shifts=shifts,
             bands=bands,
@@ -219,6 +200,20 @@ def stack_tiles_parallel(
         )
         for path in tile_paths
     ]
+
+    # delayeds = [
+    #     delayed(read_tile_parallel_without_illum_read)(
+    #         path,
+    #         remove_hot_pixels=remove_hot_pixels,
+    #         flatfield=flatfield,
+    #         darkfield=darkfield,
+    #         scales=scales,
+    #         shifts=shifts,
+    #         bands=bands,
+    #         dtype=dtype,
+    #     )
+    #     for path in tile_paths
+    # ]
 
     delayeds = [da.from_delayed(d, shape=new_shape, dtype=dtype) for d in delayeds]
     stack = da.stack(delayeds)
@@ -232,111 +227,6 @@ def stack_tiles_parallel(
         photometric="minisblack",
         description=updated_ome.to_xml().encode(),
     )
-
-
-def _adjust_channel(
-    ch: npt.NDArray, scales: dict, shifts: dict, band: SpectralBand
-) -> npt.NDArray:
-    scale = scales[band.cube][band.wavelength]
-    shift = shifts[band.cube][band.wavelength]
-    ch = scale_image(ch, scale)
-    ch = shift_image(ch, shift)
-    return ch
-
-
-def read_tile_serial(
-    path: Path,
-    *,
-    remove_hot_pixels: Callable,
-    flatfield: npt.NDArray,
-    darkfield: npt.NDArray,
-    scales: dict,
-    shifts: dict,
-    bands: list[SpectralBand],
-    dtype: npt.DTypeLike,
-):
-    """
-    The reason the workers have to read the flatfield and darkfield images instead of
-    being passed the image is that when the function is passed to the worker, it makes
-    copies of both and that is enough to completely use up the RAM. It's not ideal since
-    we keep hammering the server...
-    """
-
-    image: npt.NDArray = tifffile.imread(path)
-    image = img_as_float(image)
-    image = remove_hot_pixels(image)
-
-    image -= darkfield
-    image /= flatfield
-
-    assert len(image) == len(bands)
-
-    chs = []
-    for ch, band in zip(image, bands):
-        scale = scales[band.cube][band.wavelength]
-        shift = shifts[band.cube][band.wavelength]
-        ch = scale_image(ch, scale)
-        ch = shift_image(ch, shift)
-        chs.append(ch)
-    image = np.stack(chs)
-
-    image.clip(0, 1, out=image)
-    image = _convert(image, dtype)
-    image = imrotate(image)
-    return image
-
-
-def stack_tiles(
-    tiles_path: Path,
-    *,
-    flatfield_path: Path,
-    darkfield_path: Path,
-    dark_dir: Path,
-    scales_shifts_dir: Path,
-    dst: Path,
-):
-    paths = read_paths(tiles_path)
-    with TiffReader(paths[0]) as reader:
-        dtype = reader.series[0].dtype
-        shape = reader.series[0].shape
-
-        ome = from_xml(reader.ome_metadata, parser="lxml")
-        pixels = ome.images[0].pixels
-        ts = ome.images[0].acquisition_date.timestamp()
-
-    remove_hot_pixels = get_remove_hot_pixels_func(ts, dark_dir=dark_dir)
-    bands = get_spectral_bands(pixels)
-    scales, shifts = get_scales_shifts(ts, scales_shifts_dir=scales_shifts_dir)
-    new_shape = [shape[i] for i in rotated_axes]
-    tile_shape = new_shape[1:]
-
-    flatfield: npt.NDArray = tifffile.imread(flatfield_path)
-    darkfield: npt.NDArray = tifffile.imread(darkfield_path)
-
-    def _tiles():
-        for path in paths:
-            yield read_tile_serial(
-                path,
-                remove_hot_pixels=remove_hot_pixels,
-                flatfield=flatfield,
-                darkfield=darkfield,
-                scales=scales,
-                shifts=shifts,
-                bands=bands,
-                dtype=dtype,
-            )
-
-    updated_ome = update_stack_ome(ome, tile_paths=paths)
-    dst.parent.mkdir(exist_ok=True, parents=True)
-    with TiffWriter(dst, bigtiff=True) as tif:
-        tif.write(
-            data=_tiles(),
-            tile=tile_shape,
-            photometric="minisblack",
-            description=updated_ome.to_xml().encode(),
-            dtype=dtype,
-            shape=[len(paths)] + new_shape,
-        )
 
 
 def run():

@@ -5,9 +5,8 @@ import java.nio.file.Paths
 // illumination-specific parameters
 params.computeDarkfield = false
 params.nMaxIllum = 200
-params.overwriteIllumProfiles = false
 params.nAssessIllum = 5
-params.overwriteAssessIllumProfiles = false
+params.illumProfilesWorkingSize = 128
 
 // local variables
 Random randomSeed = new Random(0)
@@ -60,28 +59,29 @@ process MAKE_ILLUM_PROFILES_BY_ROUND {
     anyone changes the number of tiles picked for this step, the memory will have to
     change as well.
 
-    As a rule of thumb, 200 images need 4GB. Whether that scales linearly...
+    This step doesn't really need that much computing power; it is not really able to
+    be run in parallel.
     */
 
     if (!workflow.stubRun) {
-        conda "./environment.yml"
+        conda "${params.condaEnvironmentPath}"
     }
     tag "round: ${round}"
-    memory "4 GB"
+    memory "2 GB"
     cpus 2
 
-    publishDir(
-        path: "${illumDir}",
-        enabled: !workflow.stubRun,
-        mode: "copy",
-        pattern: "flatfield-*.tiff",
-    )
-    publishDir(
-        path: "${illumDir}",
-        enabled: !workflow.stubRun,
-        mode: "copy",
-        pattern: "darkfield-*.tiff",
-    )
+//     publishDir(
+//         path: "${illumDir}",
+//         enabled: !workflow.stubRun,
+//         mode: "copy",
+//         pattern: "flatfield-*.tiff",
+//     )
+//     publishDir(
+//         path: "${illumDir}",
+//         enabled: !workflow.stubRun,
+//         mode: "copy",
+//         pattern: "darkfield-*.tiff",
+//     )
     // log dask performance reports
     publishDir(
         path: "${params.logDir}/illum-profiles/",
@@ -94,7 +94,7 @@ process MAKE_ILLUM_PROFILES_BY_ROUND {
         tuple \
             val(round), \
             path(tilesPath)
-        val illumDir
+//         val illumDir
 
     output:
         tuple \
@@ -113,9 +113,10 @@ process MAKE_ILLUM_PROFILES_BY_ROUND {
             --darkfield-path "darkfield-${round}.tiff" \
             "${darkfieldArg}" \
             --dark-dir "${darkDir}" \
-            --dask-report-filename "make-illum-profiles-${round}.dask-performance.html" \
+            --working-size "${params.illumProfilesWorkingSize}" \
             --n-cpus "${task.cpus}" \
-            --memory-limit "${task.memory}"
+            --memory-limit "${task.memory}" \
+            --dask-report-filename "make-illum-profiles-${round}.dask-performance.html"
         """
 
     stub:
@@ -128,9 +129,11 @@ process MAKE_ILLUM_PROFILES_BY_ROUND {
 
 process ASSESS_ILLUM_PROFILES_BY_ROUND {
     if (!workflow.stubRun) {
-        conda "./environment.yml"
+        conda "${params.condaEnvironmentPath}"
     }
     tag "round: ${round}"
+    memory "2 GB"
+    cpus 1
 
     publishDir(
         path: "${params.logDir}/illum-profiles/",
@@ -174,11 +177,6 @@ boolean doComputeIllumProfiles(Path illumDir, String round) {
     return !(flatfieldExists && darkfieldExists)
 }
 
-boolean doComputeUnmixMosaic(Path unmixMosaicsDir, String round) {
-    boolean mosaicExists = unmixMosaicsDir.resolve("unmixing-mosaic-${round}.tiff").toFile().exists()
-    return !mosaicExists
-}
-
 boolean doAssessIllumProfiles(Path illumProfilesDir, String round) {
     boolean illumAssessmentExists = illumProfilesDir.resolve("plot-illum-profiles-${round}.svg").toFile().exists()
     return !illumAssessmentExists
@@ -197,54 +195,14 @@ workflow PREPARE_ROUNDS {
     main:
         channel.fromList(slide.getRoundNames()).set { roundNamesCh }
 
-        // ILLUMINATION ================================================================
-        /*
-        Initially we divide rounds into those that need illumination profiles computed
-        and those that don't
-         */
-        if (params.overwriteIllumProfiles) {
-            roundNamesCh.set { roundNamesToComputeIllumCh }
-            roundNamesToSkipIllumCh = channel.empty()
-        } else {
-            roundNamesCh
-                .branch {
-                    compute: doComputeIllumProfiles(slide.illumDir, it)
-                    skip: true
-                }
-                .set { roundNamesBranchCh }
-            roundNamesBranchCh.compute.set { roundNamesToComputeIllumCh }
-            roundNamesBranchCh.skip.set { roundNamesToSkipIllumCh }
-        }
-
-        // compute illum for rounds
-        GET_RANDOM_ILLUM_TILES_BY_ROUND(slide, roundNamesToComputeIllumCh)
-        MAKE_ILLUM_PROFILES_BY_ROUND(GET_RANDOM_ILLUM_TILES_BY_ROUND.out, slide.illumDir)
-
-        // get illum paths for existing rounds
-        roundNamesToSkipIllumCh
-            .map { [
-                it,
-                slide.illumDir.resolve("flatfield-${it}.tiff"),
-                slide.illumDir.resolve("darkfield-${it}.tiff")
-            ] }
-            .set { roundsWithExistingIllumProfilesCh }
-
-        // concatenate all illum profiles
+        // MAKE ILLUMINATION PROFILES ==================================================================================
+        GET_RANDOM_ILLUM_TILES_BY_ROUND(slide, roundNamesCh)
+        MAKE_ILLUM_PROFILES_BY_ROUND(GET_RANDOM_ILLUM_TILES_BY_ROUND.out)
         MAKE_ILLUM_PROFILES_BY_ROUND.out.profiles
-            .concat(roundsWithExistingIllumProfilesCh)
             .set { roundsIllumProfilesCh }
 
-        // assess illumination
-        if (params.overwriteAssessIllumProfiles) {
-            roundNamesCh.set { roundNamesToAssessIllumCh }
-        } else {
-            Path illumProfilesDir = Paths.get(params.logDir).resolve("illum-profiles")
-            roundNamesCh
-                .filter { doAssessIllumProfiles(illumProfilesDir, it) }
-                .set { roundNamesToAssessIllumCh }
-        }
-
-        GET_ALL_ILLUM_TILES_BY_ROUND(slide, roundNamesToAssessIllumCh)
+        // ASSESS ILLUMINATION =========================================================================================
+        GET_ALL_ILLUM_TILES_BY_ROUND(slide, roundNamesCh)
         GET_ALL_ILLUM_TILES_BY_ROUND.out
             .join(roundsIllumProfilesCh, by: 0)
             .map {[
