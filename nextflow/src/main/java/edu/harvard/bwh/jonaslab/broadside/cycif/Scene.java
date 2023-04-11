@@ -12,6 +12,7 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class Scene {
@@ -56,7 +57,7 @@ public class Scene {
         this.name = name;
 //        this.fsRoundNames = fsRoundNames.stream().sorted().collect(Collectors.toUnmodifiableList());
         this.tilesPath = tilesPath;
-        this.roundNames = roundNames.stream().sorted().toList();
+        this.roundNames = roundNames.stream().sorted().collect(Collectors.toUnmodifiableList());
 
         // compute summaries based on properties
         int maxRoundLen = 0;
@@ -116,7 +117,7 @@ public class Scene {
         return tilesAsStream
                 .map(File::toPath)
                 .filter(it -> tileFilenamePattern.matcher(it.getFileName().toString()).matches())
-                .toList();
+                .collect(Collectors.toUnmodifiableList());
     }
 
     public List<String> getRoundNames() {

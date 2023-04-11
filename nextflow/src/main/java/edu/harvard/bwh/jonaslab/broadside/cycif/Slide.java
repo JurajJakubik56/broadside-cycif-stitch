@@ -53,7 +53,7 @@ public class Slide {
         if (!Objects.equals(sceneNamesFromJson, sceneNamesFromFileSystem)) {
             log.warn("Mismatch between scenes in slide.json and scenes on filesystem; using filesystem");
         }
-        List<String> allSceneNames = sceneNamesFromFileSystem.stream().sorted().toList();
+        List<String> allSceneNames = sceneNamesFromFileSystem.stream().sorted().collect(Collectors.toUnmodifiableList());
 
         // validate scene names
         Set<String> foundSceneNames = new HashSet<>(sceneNamesFromFileSystem);
@@ -72,20 +72,20 @@ public class Slide {
                 .stream()
                 .map(sceneName -> new Scene(path.resolve(sceneName), selectedRoundNames))
                 .sorted(Comparator.comparing(scene -> scene.name))
-                .toList();
+                .collect(Collectors.toUnmodifiableList());
 
         // compute scene and round names
         List<String> sceneNames = scenes
                 .stream()
                 .map(it -> it.name)
                 .sorted()
-                .toList();
+                .collect(Collectors.toUnmodifiableList());
         List<String> roundNames = scenes
                 .stream()
                 .flatMap(scene -> scene.getRoundNames().stream())
                 .distinct()
                 .sorted()
-                .toList();
+                .collect(Collectors.toUnmodifiableList());
 
         // compute summaries
         String simpleSceneSummaries = scenes
@@ -166,7 +166,7 @@ public class Slide {
         return scenes
                 .stream()
                 .map(it -> it.name)
-                .toList();
+                .collect(Collectors.toUnmodifiableList());
     }
 
     public List<String> getRoundNames() {
