@@ -184,7 +184,7 @@ public class Slide {
 
     public List<Path> getTilePathsForRound(String roundName) {
         if (!getRoundNames().contains(roundName)) {
-            log.warn(String.format("formatNo tile paths found for round %s", roundName));
+            log.warn(String.format("No tile paths found for round %s", roundName));
             return Collections.emptyList();
         }
 

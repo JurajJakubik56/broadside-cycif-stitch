@@ -40,7 +40,13 @@
                     <!-- There seems to be a few warning messages from the plugin about conflicting MANIFEST.mf files; we exclude those from our dependencies. -->
                     <filters>
                         <filter>
-                            <artifact>*:*</artifact>
+                            <artifact>com.google.code.gson:*</artifact>
+                            <excludes>
+                                <exclude>META-INF/*.MF</exclude>
+                            </excludes>
+                        </filter>
+                        <filter>
+                            <artifact>org.slf4j:*</artifact>
                             <excludes>
                                 <exclude>META-INF/*.MF</exclude>
                             </excludes>
