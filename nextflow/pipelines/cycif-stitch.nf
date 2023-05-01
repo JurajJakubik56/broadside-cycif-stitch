@@ -12,8 +12,8 @@ params.rounds = ""
 params.scenes = ""
 
 // validate inputs
-def selectedRoundNames = params.rounds ? params.rounds.tokenize(" ") : null
-def selectedSceneNames = params.scenes ? params.scenes.tokenize(" ") : null
+def selectedRoundNames = params.rounds ? params.rounds.tokenize(",") : null
+def selectedSceneNames = params.scenes ? params.scenes.tokenize(",") : null
 def slide = new Slide(
     Paths.get(params.slide),
     selectedSceneNames as Set,

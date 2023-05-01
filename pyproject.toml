@@ -19,35 +19,39 @@ repository = "https://github.com/biomicrodev/broadside-stitch"
 homepage = "https://jonaslab.bwh.harvard.edu"
 packages = [{ include = "broadside", from = "src" }]
 
+# specify s3fs; see this issue: https://github.com/python-poetry/poetry/issues/7856
 [tool.poetry.dependencies]
+s3fs = "^2023.4.0"
 python = ">=3.8,<3.11"
 ashlar = "^1.17"
 bmd-perf = { git = "https://github.com/biomicrodev/bmd-perf.git", branch = "master" }
 bokeh = ">=2.4.2,<3"
-dask = "^2023.3"
-distributed = "^2023.3"
+dask = "^2023.4.1"
+distributed = "^2023.4.1"
 imageio = "^2.26"
 joblib = "^1.2.0"
 matplotlib = "^3.7"
-numba = "^0.56"
+multiscale-spatial-image = "^0.11.2"
+numba = ">=0.56"
 numcodecs = "^0.11"
 numpy = ">=1.23"
 ome-types = "^0.3"
 ome-zarr = "^0.6"
-opencv-python = "^4.7"
 pandas = "^1.5"
 pillow = "^9.4"
 pint = "^0.20"
 pybasic = { git = "https://github.com/biomicrodev/pybasic.git", branch = "master" }
-scikit-image = "^0.19"
 scipy = "^1.8"
+scikit-image = "^0.19"
 structlog = "^22.3"
 tifffile = "^2023.2"
+tqdm = "^4.65.0"
 zarr = "^2.14"
 
 [tool.poetry.group.dev.dependencies]
 black = { version = "^23.1", extras = ["d"] }
 py-spy = "^0.3.14"
+seaborn = "^0.12.2"
 
 [tool.poetry.scripts]
 compute-cube-alignments = "broadside.scripts.compute_cube_alignments:run"
@@ -55,8 +59,10 @@ make-illum-profiles = "broadside.scripts.make_illum_profiles:run"
 assess-illum-profiles = "broadside.scripts.assess_illum_profiles:run"
 stack-tiles = "broadside.scripts.stack_tiles:run"
 register-and-stitch = "broadside.scripts.register_and_stitch:run"
+make-zarr-pyramid = "broadside.scripts.make_zarr_pyramid:run"
+convert-zarr-to-tiff = "broadside.scripts.convert_zarr_to_tiff:run"
 write-ome-metadata = "broadside.scripts.write_ome_metadata:run"
-tiff-to-zarr = "broadside.scripts.tiff_to_zarr:run"
+#tiff-to-zarr = "broadside.scripts.tiff_to_zarr:run"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

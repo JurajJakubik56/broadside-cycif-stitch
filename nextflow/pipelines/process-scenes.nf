@@ -4,10 +4,17 @@ import java.nio.file.Paths
 params.refChannelIndex = 0
 
 // registration/stitching parameters
-params.ashlarMaxShiftUM = 50
-params.ashlarFilterSigma = 4  // 4 may be too much, it may register but not too precisely; 2 may be too little and fails to register
-params.ashlarTileSize = 1024
-params.zarrChunkSize = 4096
+params.ashlarMaxShiftUM = 15
+params.ashlarFilterSigma = 0
+params.zarrTileSize = 2**12
+params.zarrPyramidMaxTopLevelSize = 512
+params.zarrPyramidDownscale = 2
+params.tiffTileSize = 512
+
+// consider changing these so that they are completely internal?
+String ashlarOutputFormat = "cycle_{cycle}_channel_{channel}.tiff"
+String ashlarOutputPattern = "cycle_*_channel_*.tiff"
+String ashlarFirstChannel = "cycle_0_channel_0.tiff"
 
 String newline = "\n"
 String colSep = "\t"
@@ -165,7 +172,7 @@ process COLLECT_TILES_BY_SCENE {
         file(dst).text = lines.join(newline)
 }
 
-process REGISTER_AND_STITCH_SCENE {
+process REGISTER_STITCH_AND_DOWNSCALE_SCENE {
     if (!workflow.stubRun) {
         conda "${params.condaEnvironmentPath}"
     }
@@ -188,7 +195,7 @@ process REGISTER_AND_STITCH_SCENE {
     output:
         tuple \
             val(sceneName), \
-            path("${params.omeTiffFilename}"), \
+            path("${params.omeZarrDirname}"), \
             path("${params.omeXmlFilename}")
 
     script:
@@ -199,73 +206,31 @@ process REGISTER_AND_STITCH_SCENE {
         String omeImageName = "{\\\"slide\\\": \\\"${slideName}\\\", \\\"scene\\\": \\\"${sceneName}\\\"}"
         """
         register-and-stitch \
-            --output "${params.omeTiffFilename}" \
+            --output-format "${ashlarOutputFormat}" \
             --stacks-path "${stacksPath}" \
             --align-channel "${params.refChannelIndex}" \
             --filter-sigma "${params.ashlarFilterSigma}" \
-            --maximum-shift "${params.ashlarMaxShiftUM}" \
-            --tile-size "${params.ashlarTileSize}"
+            --maximum-shift "${params.ashlarMaxShiftUM}"
+
+        make-zarr-pyramid \
+            --src-pattern "${ashlarOutputPattern}" \
+            --dst "${params.omeZarrDirname}" \
+            --tile-size "${params.zarrTileSize}" \
+            --max-top-level-size "${params.zarrPyramidMaxTopLevelSize}" \
+            --downscale "${params.zarrPyramidDownscale}"
 
         write-ome-metadata \
+            --ashlar-first-channel "${ashlarFirstChannel}" \
             --stacks-path "${stacksPath}" \
             --tiles-path "${tilesPath}" \
-            --ome-tiff-path "${params.omeTiffFilename}" \
             --ome-image-name "${omeImageName}" \
             --ome-xml-path "${params.omeXmlFilename}"
         """
 
     stub:
         """
-        touch "${params.omeTiffFilename}"
-        touch "${params.omeXmlFilename}"
-        """
-}
-
-process MAKE_SCENE_ZARR_FROM_TIFF {
-    if (!workflow.stubRun) {
-        conda "${params.condaEnvironmentPath}"
-    }
-    tag "scene: ${sceneName}"
-    memory "2 GB"
-    cpus 2
-
-    publishDir(
-        path: "${params.logDir}/tiff-to-zarr/",
-        enabled: !workflow.stubRun,
-        mode: "copy",
-        pattern: "tiff-to-zarr-*.dask-performance.html"
-    )
-    publishDir(
-        path: "${sceneDir}",
-        enabled: !workflow.stubRun,
-        mode: "copy",
-        pattern: "${params.omeZarrDirname}"
-    )
-
-    input:
-        tuple \
-            val(sceneName), \
-            val(sceneDir), \
-            path(omeTiffPath)
-
-    output:
-        path "${params.omeZarrDirname}"
-
-    script:
-        """
-        tiff-to-zarr \
-            --src "${omeTiffPath}" \
-            --dst "${params.omeZarrDirname}" \
-            --tile-size "${params.zarrChunkSize}" \
-            --n-cpus "${task.cpus}" \
-            --memory-limit "${task.memory}" \
-            --dask-report-filename "tiff-to-zarr-${sceneName}.dask-performance.html"
-        """
-
-    stub:
-        """
         mkdir "${params.omeZarrDirname}"
-        touch "tiff-to-zarr-${sceneName}.dask-performance.html"
+        touch "${params.omeXmlFilename}"
         """
 }
 
@@ -336,7 +301,7 @@ workflow PROCESS_SCENES {
                 tilesPath: it[3]
             ] }
             .set { sceneStacksPathTilesPathCh }
-        REGISTER_AND_STITCH_SCENE(
+        REGISTER_STITCH_AND_DOWNSCALE_SCENE(
             slide.name,
             sceneStacksPathTilesPathCh
                 .map {[
@@ -347,11 +312,4 @@ workflow PROCESS_SCENES {
                 ]}
         )
 
-        MAKE_SCENE_ZARR_FROM_TIFF(
-            sceneStacksPathTilesPathCh
-                .map { [it.scene, it.sceneDir] }
-                .join(REGISTER_AND_STITCH_SCENE.out, by: 0)
-                .map { [scene: it[0], sceneDir: it[1], omeTiffPath: it[2]] }
-                .map { [it.scene, it.sceneDir, it.omeTiffPath] }
-        )
 }

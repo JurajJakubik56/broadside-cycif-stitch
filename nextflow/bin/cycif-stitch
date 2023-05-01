@@ -10,8 +10,8 @@ Usage: $0 "/path/to/slide/" [--scenes STR] [--rounds STR]
 
 optional arguments:
   -h, --help    show this help message and exit
-  --scenes STR  scene names, separated by spaces
-  --rounds STR  round names, separated by spaces
+  --scenes STR  scene names, separated by commas
+  --rounds STR  round names, separated by commas
 HEREDOC
   exit 1
 }
@@ -110,6 +110,7 @@ nextflow \
   -log "$LOG_PATH" \
   -C "$CONFIG_PATH" \
   run "$PIPELINE_PATH" \
+  -resume \
   -with-report "$REPORT_PATH" \
   -with-trace "$TRACE_PATH" \
   -with-timeline "$TIMELINE_PATH" \
@@ -117,5 +118,3 @@ nextflow \
   --slide="$SLIDE_PATH" \
   --scenes="$SCENES" \
   --rounds="$ROUNDS"
-#  -resume
-#  -stub

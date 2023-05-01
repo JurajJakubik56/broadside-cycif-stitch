@@ -58,12 +58,18 @@ def unique_list(objs: list, key: Callable):
 
 
 def make_ome(
-    ome_tiff_path: Path,
     *,
+    ashlar_first_channel_path: Path,
     ome_image_name: str,
     tile_paths_by_round: dict[str, list[Path]],
     round_names: list[str],
 ):
+    # get full size from ashlar
+    with TiffReader(ashlar_first_channel_path) as ashlar_reader:
+        shape = ashlar_reader.pages[0].shape
+        assert len(shape) == 2
+        size_y, size_x = shape
+
     centroid = get_scene_center(tile_paths_by_round, round_names)
 
     base_ome: Optional[OME] = None
@@ -111,15 +117,8 @@ def make_ome(
 
     all_filters = unique_list(all_filters, lambda f: f.id)
 
-    # replace parts of final_ome with all the other rounds' details
-    with TiffReader(ome_tiff_path) as reader:
-        ashlar_ome = from_xml(reader.ome_metadata, parser="lxml")
-        size_x = ashlar_ome.images[0].pixels.size_x
-        size_y = ashlar_ome.images[0].pixels.size_y
-
     assert base_ome is not None
     base_ome.instruments[0].filters = all_filters
-    base_ome.creator = ashlar_ome.creator
 
     base_image = base_ome.images[0]
     base_image.id = "Image:0"
@@ -150,25 +149,26 @@ def read_tiles_by_round(path: Path) -> tuple[list[str], dict[str, list[Path]]]:
 
 def run():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--ashlar-first-channel", type=str, required=True)
     parser.add_argument("--stacks-path", type=str, required=True)
     parser.add_argument("--tiles-path", type=str, required=True)
-    parser.add_argument("--ome-tiff-path", type=str, required=True)
+    # parser.add_argument("--ome-tiff-path", type=str, required=True)
     parser.add_argument("--ome-xml-path", type=str, required=True)
     parser.add_argument("--ome-image-name", type=str, required=True)
 
     args = parser.parse_args()
 
     round_names, tile_paths_by_round = read_tiles_by_round(Path(args.tiles_path))
-    ome_tiff_path = Path(args.ome_tiff_path)
 
     ome = make_ome(
-        ome_tiff_path=ome_tiff_path,
+        ashlar_first_channel_path=Path(args.ashlar_first_channel),
         ome_image_name=args.ome_image_name,
         tile_paths_by_round=tile_paths_by_round,
         round_names=round_names,
     )
     ome_xml = ome.to_xml()
-    tiffcomment(ome_tiff_path, ome_xml.encode())
+    # ome_tiff_path = Path(args.ome_tiff_path)
+    # tiffcomment(ome_tiff_path, ome_xml.encode())
 
     ome_xml_path = Path(args.ome_xml_path)
     with ome_xml_path.open("w") as file:

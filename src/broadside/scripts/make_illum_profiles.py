@@ -53,7 +53,7 @@ def read_images(
         )
         for path in paths
     ]
-    images = [da.from_delayed(i, shape=shape, dtype=float) for i in images]
+    images = [da.from_delayed(i, shape=shape, dtype=np.float64) for i in images]
     images = da.stack(images)
     images = images.compute()
 

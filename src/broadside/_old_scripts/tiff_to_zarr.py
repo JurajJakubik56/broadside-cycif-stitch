@@ -8,8 +8,6 @@ from ome_zarr.io import parse_url
 from ome_zarr.writer import write_multiscale
 from tifffile import tifffile
 
-from broadside.utils.parallel import dask_session
-
 
 def tiff_to_zarr(*, src: Path, dst: Path, tile_size: int):
     zgroup = zarr.open(tifffile.imread(src, aszarr=True), mode="r")
@@ -40,19 +38,12 @@ def run():
     parser.add_argument("--dst", type=str, required=True)
     parser.add_argument("--tile-size", type=int, required=True)
 
-    parser.add_argument("--n-cpus", type=int, default=None)
-    parser.add_argument("--memory-limit", type=str, default=None)
-    parser.add_argument("--dask-report-filename", type=str, default=None)
-
     args = parser.parse_args()
 
-    with dask_session(
-        memory_limit=args.memory_limit,
-        n_cpus=args.n_cpus,
-        dask_report_filename=args.dask_report_filename,
-    ):
-        tiff_to_zarr(
-            src=Path(args.src),
-            dst=Path(args.dst),
-            tile_size=args.tile_size,
-        )
+    # unfortunately, there is a serialization error when constructing a dask cluster with
+    # write_multiscale; since this is a pretty fast step, we leave it out
+    tiff_to_zarr(
+        src=Path(args.src),
+        dst=Path(args.dst),
+        tile_size=args.tile_size,
+    )
