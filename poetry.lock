@@ -2000,7 +2000,7 @@ version = "0.0.2"
 description = "Background and shading correction for microscopy images"
 category = "main"
 optional = false
-python-versions = ">=3.8,<3.12"
+python-versions = ">=3.8,<4.0"
 files = []
 develop = false
 
@@ -2013,7 +2013,7 @@ scipy = "^1.9"
 type = "git"
 url = "https://github.com/biomicrodev/pybasic.git"
 reference = "master"
-resolved_reference = "379c1d805be3829601add2df883e8cfcf5764d74"
+resolved_reference = "0e67e52494d6341ea5e38be126d37cf361d933bf"
 
 [[package]]
 name = "pydantic"

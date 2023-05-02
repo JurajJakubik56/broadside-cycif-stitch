@@ -6,7 +6,7 @@ from typing import Optional, Callable
 from joblib import delayed, Parallel
 from ome_types import OME, from_xml
 from ome_types.model.simple_types import UnitsLength
-from tifffile import tiffcomment, TiffReader
+from tifffile import TiffReader
 
 from broadside.utils.geoms import Point2D, get_center_of_points
 from broadside.utils.io import read_paths

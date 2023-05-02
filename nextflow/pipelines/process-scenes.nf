@@ -11,7 +11,6 @@ params.zarrPyramidMaxTopLevelSize = 512
 params.zarrPyramidDownscale = 2
 params.tiffTileSize = 512
 
-// consider changing these so that they are completely internal?
 String ashlarOutputFormat = "cycle_{cycle}_channel_{channel}.tiff"
 String ashlarOutputPattern = "cycle_*_channel_*.tiff"
 String ashlarFirstChannel = "cycle_0_channel_0.tiff"
@@ -177,6 +176,7 @@ process REGISTER_STITCH_AND_DOWNSCALE_SCENE {
         conda "${params.condaEnvironmentPath}"
     }
     tag "scene: ${sceneName}"
+    maxForks 2
 
     publishDir(
         path: "${sceneDir}",
